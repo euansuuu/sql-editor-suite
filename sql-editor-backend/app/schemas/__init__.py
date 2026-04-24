@@ -49,8 +49,11 @@ class DataSourceBase(BaseModel):
     username: Optional[str] = Field(None, description="用户名")
     password: Optional[str] = Field(None, description="密码")
     use_kerberos: bool = Field(False, description="是否使用 Kerberos")
-    kerberos_principal: Optional[str] = Field(None, description="Kerberos Principal")
+    kerberos_principal: Optional[str] = Field(None, description="客户端 Kerberos Principal（用户身份）")
     kerberos_keytab_path: Optional[str] = Field(None, description="Keytab 文件路径")
+    kerberos_service_name: Optional[str] = Field("hive", description="Kerberos 服务名称（hive）")
+    kerberos_host_name: Optional[str] = Field(None, description="Kerberos 服务主机名（可选，默认从 host 提取）")
+    auth_mechanism: Optional[str] = Field("KERBEROS", description="认证机制：KERBEROS/PLAIN/NOSASL/LDAP")
     extra_config: Optional[dict] = Field(default_factory=dict)
 
 

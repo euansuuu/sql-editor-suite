@@ -35,13 +35,16 @@ class HiveServer2Connector(BaseConnector):
                 if keytab_path and os.path.exists(keytab_path):
                     self._kinit(self.kerberos_principal, keytab_path)
 
+            # 认证机制：优先用配置的 auth_mechanism
+            auth = self.config.get("auth_mechanism", "KERBEROS" if self.use_kerberos else "NOSASL")
+            
             # 基础配置
             connect_kwargs = {
                 "host": self.host,
                 "port": self.port,
                 "database": self.database,
                 "username": self.username or "anonymous",
-                "auth": self.auth,
+                "auth": auth,
             }
 
             # 密码（PLAIN/LDAP 认证用）
@@ -50,17 +53,13 @@ class HiveServer2Connector(BaseConnector):
 
             # Kerberos 配置
             if self.use_kerberos:
-                # 服务端 Principal（默认为 hive）
+                # 服务端 Principal 名称（默认为 hive）
                 service_name = self.config.get("kerberos_service_name", "hive")
                 connect_kwargs["kerberos_service_name"] = service_name
                 
-                # 如果指定了服务端主机名
-                if "kerberos_host_name" in self.config:
-                    connect_kwargs["kerberos_host_name"] = self.config["kerberos_host_name"]
-                
-                # 支持通过 realm 配置
-                if "kerberos_realm" in self.config:
-                    connect_kwargs["kerberos_realm"] = self.config["kerberos_realm"]
+                # 如果指定了服务端主机名（用于 kerberos_host_name）
+                kerberos_host_name = self.config.get("kerberos_host_name") or self.host
+                connect_kwargs["kerberos_host_name"] = kerberos_host_name
             
             logger.info(f"Connecting to HiveServer2: host={self.host}, port={self.port}, auth={self.auth}")
             logger.debug(f"Connection kwargs: {connect_kwargs}")
