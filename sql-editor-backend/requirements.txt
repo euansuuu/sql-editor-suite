@@ -1,0 +1,24 @@
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+sqlalchemy==2.0.27
+pydantic==2.6.1
+pydantic-settings==2.1.0
+python-multipart==0.0.6
+# impyla 0.18.0 requires thrift==0.16.0
+impyla==0.18.0
+thrift==0.16.0
+thrift-sasl==0.4.3
+# pyhive[hive] forces sasl installation which fails on Python 3.12
+# Use pyhive without [hive] extra + pure-sasl instead
+pyhive==0.7.0
+trino==0.328.0
+requests==2.31.0
+python-dateutil==2.8.2
+alembic==1.13.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+aiofiles==23.2.1
+tenacity==8.2.3
+# Use pure-sasl instead of sasl for Python 3.12+ compatibility
+# sasl==0.3.1 is not compatible with Python 3.12 (missing longintrepr.h)
+pure-sasl==0.6.2
