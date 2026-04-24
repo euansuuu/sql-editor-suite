@@ -68,12 +68,14 @@ class HiveServer2Connector(BaseConnector):
                 service_name = self.config.get("kerberos_service_name", "hive")
                 connect_kwargs["kerberos_service_name"] = service_name
                 
-                # 如果指定了服务端主机名（用于 kerberos_host_name）
-                # 如果 host 是 IP，建议配置为主机名
-                kerberos_host_name = self.config.get("kerberos_host_name") or self.host
-                connect_kwargs["kerberos_host_name"] = kerberos_host_name
-                
-                logger.info(f"Kerberos 配置: service={service_name}, host={kerberos_host_name}")
+                # 如果配置了 kerberos_host_name（主机名），用它替换 host 参数
+                # 因为 Kerberos Principal 是 hive/hostname@REALM，必须用主机名而不是 IP
+                kerberos_host_name = self.config.get("kerberos_host_name")
+                if kerberos_host_name:
+                    connect_kwargs["host"] = kerberos_host_name
+                    logger.info(f"Kerberos 配置: service={service_name}, 使用主机名={kerberos_host_name} (原 host={self.host})")
+                else:
+                    logger.info(f"Kerberos 配置: service={service_name}, host={self.host}")
             
             logger.info(f"Connecting to HiveServer2: host={self.host}, port={self.port}, auth={self.auth}")
             logger.debug(f"Connection kwargs: {connect_kwargs}")

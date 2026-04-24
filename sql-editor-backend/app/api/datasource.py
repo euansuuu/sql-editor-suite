@@ -247,8 +247,8 @@ async def test_connection_new(request: Request, db: Session = Depends(get_db)):
         
         # Kerberos 模式下才添加相关配置
         if use_kerberos:
-            config["kerberos_service_name"] = raw_data.get('kerberos_service_name') or kerberos_obj.get('service_name', 'hive')
-            config["kerberos_host_name"] = raw_data.get('kerberos_host_name') or raw_data.get('host')
+            config["kerberos_service_name"] = raw_data.get('kerberos_service_name') or (kerberos_obj.get('service_name') if kerberos_obj else None) or 'hive'
+            config["kerberos_host_name"] = raw_data.get('kerberos_host_name') or (kerberos_obj.get('host_name') if kerberos_obj else None)
             config["auth_mechanism"] = raw_data.get('auth_mechanism', 'KERBEROS')
 
         connector = HiveServer2Connector(config)
