@@ -11,11 +11,19 @@ router = APIRouter(prefix="/metadata", tags=["metadata"])
 
 
 def get_db():
-    db = SessionLocal()
+    """获取数据库会话（修复并发关闭问题）"""
+    session = SessionLocal()
     try:
-        yield db
+        yield session
+    except Exception:
+        session.rollback()
+        raise
     finally:
-        db.close()
+        try:
+            if session.is_active:
+                session.close()
+        except Exception:
+            pass  # 忽略关闭时的错误，避免重复关闭导致异常
 
 
 def get_connector(datasource: DataSource):
