@@ -188,6 +188,23 @@ def test_connection_new(data: DataSourceCreate, db: Session = Depends(get_db)):
         if success:
             return ApiResponse.success(data={"success": True}, message="连接成功")
         else:
-            return ApiResponse.error(data={"success": False}, message="连接失败")
+            return ApiResponse.error(data={"success": False}, message="连接失败：无法建立连接，请检查网络和配置")
     except Exception as e:
-        return ApiResponse.error(data={"success": False}, message=f"连接失败: {str(e)}")
+        import traceback
+        error_detail = str(e)
+        error_stack = traceback.format_exc()
+        
+        # 提取关键错误信息
+        if "Kerberos" in error_detail or "GSS" in error_detail or "krb" in error_detail:
+            message = f"Kerberos 认证失败: {error_detail}"
+        elif "Connection refused" in error_detail:
+            message = f"连接被拒绝: {data.host}:{data.port}，请检查网络和端口"
+        elif "Authentication" in error_detail:
+            message = f"认证失败: {error_detail}"
+        else:
+            message = f"连接失败: {error_detail}"
+        
+        return ApiResponse.error(
+            data={"success": False, "error": error_detail, "stacktrace": error_stack},
+            message=message
+        )

@@ -1,9 +1,14 @@
 import uuid
 import time
+import os
+import subprocess
+import logging
 from typing import Any, Optional
 from pyhive import hive
 from impala.dbapi import connect as impala_connect
 from .base import BaseConnector, ConnectionError, QueryExecutionError
+
+logger = logging.getLogger(__name__)
 
 
 class HiveServer2Connector(BaseConnector):
@@ -24,6 +29,12 @@ class HiveServer2Connector(BaseConnector):
     def connect(self) -> None:
         """建立 HiveServer2 连接"""
         try:
+            # 如果使用 Kerberos，先确保有票据
+            if self.use_kerberos:
+                keytab_path = self.config.get("kerberos_keytab_path")
+                if keytab_path and os.path.exists(keytab_path):
+                    self._kinit(self.kerberos_principal, keytab_path)
+
             connect_kwargs = {
                 "host": self.host,
                 "port": self.port,
@@ -33,12 +44,40 @@ class HiveServer2Connector(BaseConnector):
             }
 
             if self.use_kerberos and self.kerberos_principal:
-                connect_kwargs["kerberos_service_name"] = self.kerberos_principal.split('/')[0] if '/' in self.kerberos_principal else 'hive'
-
+                # 提取 service name，例如 hive/host@REALM -> hive
+                principal_parts = self.kerberos_principal.split('/')
+                if len(principal_parts) >= 2:
+                    connect_kwargs["kerberos_service_name"] = principal_parts[0]
+                    connect_kwargs["kerberos_host_name"] = principal_parts[1].split('@')[0]
+                else:
+                    connect_kwargs["kerberos_service_name"] = 'hive'
+            
+            logger.info(f"Connecting to HiveServer2: host={self.host}, port={self.port}, auth={self.auth}")
             self.connection = hive.Connection(**connect_kwargs)
             self.cursor = self.connection.cursor()
+            logger.info("HiveServer2 连接成功")
         except Exception as e:
-            raise ConnectionError(f"HiveServer2 连接失败: {str(e)}") from e
+            error_msg = f"HiveServer2 连接失败: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            raise ConnectionError(error_msg) from e
+
+    def _kinit(self, principal: str, keytab_path: str) -> None:
+        """使用 keytab 执行 kinit 获取 Kerberos 票据"""
+        try:
+            logger.info(f"执行 kinit: principal={principal}, keytab={keytab_path}")
+            result = subprocess.run(
+                ["kinit", "-kt", keytab_path, principal],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                logger.info("kinit 成功")
+            else:
+                logger.warning(f"kinit 警告: {result.stderr}")
+        except Exception as e:
+            logger.warning(f"kinit 执行失败: {e}")
 
     def disconnect(self) -> None:
         """关闭连接"""
