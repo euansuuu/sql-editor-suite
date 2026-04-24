@@ -118,13 +118,15 @@ class ExecutionService:
             except Exception:
                 pass
 
-    def execute(self, datasource_id: int, sql: str, max_rows: int = 1000) -> str:
+    def execute(self, datasource_id: int, sql: str, max_rows: int = 1000, database: Optional[str] = None) -> str:
         """执行 SQL（异步）"""
         datasource = self.db.query(DataSource).filter(DataSource.id == datasource_id).first()
         if not datasource:
             raise ValueError(f"数据源不存在: {datasource_id}")
 
         datasource_config = self._extract_datasource_config(datasource)
+        if database and database.strip():
+            datasource_config["database"] = database.strip()
 
         query_id = str(uuid.uuid4())
         query = QueryExecution(

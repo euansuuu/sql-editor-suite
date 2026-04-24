@@ -79,6 +79,7 @@ class DataSource(DataSourceBase):
 class SQLExecuteRequest(BaseModel):
     datasource_id: int = Field(..., description="数据源 ID", alias="datasourceId")
     sql: str = Field(..., description="SQL 语句")
+    database: Optional[str] = Field(None, description="本次查询使用的数据库")
     max_rows: Optional[int] = Field(1000, description="最大返回行数", alias="maxRows")
 
     class Config:

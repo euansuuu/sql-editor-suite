@@ -30,7 +30,12 @@ def execute_sql(request: SQLExecuteRequest, db: Session = Depends(get_db)):
     """执行 SQL 查询"""
     try:
         service = ExecutionService(db)
-        query_id = service.execute(request.datasource_id, request.sql, request.max_rows)
+        query_id = service.execute(
+            request.datasource_id,
+            request.sql,
+            request.max_rows,
+            database=request.database,
+        )
         return ApiResponse.success(data={"query_id": query_id}, message="查询已提交")
     except Exception as e:
         return ApiResponse.error(message=str(e))
