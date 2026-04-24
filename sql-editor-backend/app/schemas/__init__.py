@@ -1,7 +1,24 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Any, List
+from typing import Optional, Any, List, Generic, TypeVar
 from datetime import datetime
 from enum import Enum
+
+T = TypeVar('T')
+
+
+class ApiResponse(BaseModel, Generic[T]):
+    """通用 API 响应格式（兼容前端）"""
+    code: int = Field(default=0, description="响应码，0 表示成功")
+    message: str = Field(default="success", description="响应消息")
+    data: Optional[T] = Field(default=None, description="响应数据")
+    
+    @classmethod
+    def success(cls, data: T = None, message: str = "success"):
+        return cls(code=0, message=message, data=data)
+    
+    @classmethod
+    def error(cls, message: str, code: int = -1, data: T = None):
+        return cls(code=code, message=message, data=data)
 
 
 class DataSourceType(str, Enum):
