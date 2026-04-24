@@ -164,3 +164,30 @@ def test_connection(datasource_id: int, db: Session = Depends(get_db)):
             return ApiResponse.error(data={"success": False}, message="连接失败")
     except Exception as e:
         return ApiResponse.error(data={"success": False}, message=f"连接失败: {str(e)}")
+
+
+@router.post("/test", response_model=ApiResponse[dict])
+def test_connection_new(data: DataSourceCreate, db: Session = Depends(get_db)):
+    """测试数据源连接（用于新建时测试）"""
+    try:
+        config = {
+            "host": data.host,
+            "port": data.port,
+            "database": data.database,
+            "username": data.username,
+            "password": data.password,
+            "use_kerberos": data.use_kerberos,
+            "kerberos_principal": data.kerberos_principal,
+            "kerberos_keytab_path": data.kerberos_keytab_path,
+            **(data.extra_config or {}),
+        }
+
+        connector = HiveServer2Connector(config)
+        success = connector.test_connection()
+
+        if success:
+            return ApiResponse.success(data={"success": True}, message="连接成功")
+        else:
+            return ApiResponse.error(data={"success": False}, message="连接失败")
+    except Exception as e:
+        return ApiResponse.error(data={"success": False}, message=f"连接失败: {str(e)}")
