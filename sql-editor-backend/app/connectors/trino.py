@@ -78,14 +78,18 @@ class TrinoConnector(BaseConnector):
             if not self.cursor:
                 self.connect()
 
+            # 去除末尾分号，保持与 Hive 连接器一致的行为
+            cleaned_sql = sql.strip().rstrip(';').strip()
+            
             self._queries[query_id] = {
                 "status": "RUNNING",
                 "sql": sql,
+                "cleaned_sql": cleaned_sql,
                 "start_time": start_time,
                 "cursor": self.cursor,
             }
 
-            self.cursor.execute(sql, parameters or {})
+            self.cursor.execute(cleaned_sql, parameters or {})
             self._queries[query_id]["status"] = "SUCCESS"
             self._queries[query_id]["end_time"] = time.time()
 

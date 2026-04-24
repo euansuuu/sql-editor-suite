@@ -155,14 +155,21 @@ class HiveServer2Connector(BaseConnector):
             if not self.cursor:
                 self.connect()
 
+            # 重要：Hive JDBC/Thrift 不接受末尾的分号，需要去除
+            # 处理: SELECT 1;  -> SELECT 1
+            # 处理: SELECT 1;;  -> SELECT 1
+            # 处理: SELECT 1; \n  -> SELECT 1
+            cleaned_sql = sql.strip().rstrip(';').strip()
+            
             self._queries[query_id] = {
                 "status": "RUNNING",
                 "sql": sql,
+                "cleaned_sql": cleaned_sql,
                 "start_time": start_time,
                 "cursor": self.cursor,
             }
 
-            self.cursor.execute(sql, parameters or {})
+            self.cursor.execute(cleaned_sql, parameters or {})
             self._queries[query_id]["status"] = "SUCCESS"
             self._queries[query_id]["end_time"] = time.time()
 
