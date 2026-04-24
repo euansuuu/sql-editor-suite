@@ -1,10 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel
 
 from app.models import DataSource, SessionLocal
 from app.schemas import DataSourceCreate, DataSourceUpdate, DataSource as DataSourceSchema
 from app.connectors.hiveserver2 import HiveServer2Connector
+
+
+class PaginatedResult(BaseModel):
+    """分页返回结果（兼容前端）"""
+    list: List[DataSourceSchema]
+    total: int
+    page: int
+    pageSize: int
 
 router = APIRouter(prefix="/datasources", tags=["datasources"])
 
@@ -33,10 +42,35 @@ def get_db():
         db.close()
 
 
-@router.get("", response_model=List[DataSourceSchema])
-def list_datasources(db: Session = Depends(get_db)):
-    """获取所有数据源"""
-    return db.query(DataSource).order_by(DataSource.created_at.desc()).all()
+@router.get("", response_model=PaginatedResult)
+def list_datasources(
+    page: int = Query(1, ge=1, description="页码"),
+    pageSize: int = Query(20, ge=1, le=100, description="每页数量"),
+    keyword: Optional[str] = Query(None, description="搜索关键词"),
+    db: Session = Depends(get_db)
+):
+    """获取数据源列表（分页）"""
+    query = db.query(DataSource)
+    
+    # 关键词搜索
+    if keyword:
+        query = query.filter(DataSource.name.contains(keyword))
+    
+    # 获取总数
+    total = query.count()
+    
+    # 分页
+    datasources = query.order_by(DataSource.created_at.desc()) \
+        .offset((page - 1) * pageSize) \
+        .limit(pageSize) \
+        .all()
+    
+    return PaginatedResult(
+        list=datasources,
+        total=total,
+        page=page,
+        pageSize=pageSize
+    )
 
 
 @router.get("/{datasource_id}", response_model=DataSourceSchema)
