@@ -102,7 +102,7 @@ import { useDatasourceStore } from '../stores/datasource'
 import { useTabsStore } from '../stores/tabs'
 import { useEditorStore } from '../stores/editor'
 import { useMetadataStore } from '../stores/metadata'
-import { executeQuery as executeQueryApi, getQueryStatus, getQueryResult } from '../api/query'
+import { executeQuery as executeQueryApi, getQueryStatus, getQueryResult, transformQueryResult } from '../api/query'
 import type { QueryResult as QueryResultType } from '../types'
 
 const datasourceStore = useDatasourceStore()
@@ -156,15 +156,22 @@ const pollQueryStatus = async (queryId: string, tabId: string, startTime: number
     if (statusUpper === 'SUCCESS') {
       stopPolling()
       try {
-        const result = await getQueryResult(queryId)
-        tabsStore.updateTabResult(tabId, {
-          ...currentTab.result,
-          ...result,
-          status: 'success',
-          endTime: Date.now(),
-          executionTime: Date.now() - startTime
-        })
-        ElMessage.success('查询执行成功')
+        const rawResult = await getQueryResult(queryId)
+        if (rawResult.status === 'FAILED' || rawResult.error) {
+          tabsStore.updateTabResult(tabId, {
+            ...currentTab.result,
+            id: queryId,
+            status: 'failed',
+            endTime: Date.now(),
+            executionTime: Date.now() - startTime,
+            error: rawResult.error || '查询执行失败'
+          })
+          ElMessage.error(`查询执行失败: ${rawResult.error || '未知错误'}`)
+        } else {
+          const result = transformQueryResult(rawResult, currentTab.result || {})
+          tabsStore.updateTabResult(tabId, result)
+          ElMessage.success('查询执行成功')
+        }
       } catch (err) {
         tabsStore.updateTabResult(tabId, {
           ...currentTab.result,
@@ -180,14 +187,16 @@ const pollQueryStatus = async (queryId: string, tabId: string, startTime: number
     // 查询失败
     else if (statusUpper === 'FAILED') {
       stopPolling()
+      const errorMsg = status.error_message || '查询执行失败'
       tabsStore.updateTabResult(tabId, {
         ...currentTab.result,
+        id: queryId,
         status: 'failed',
         endTime: Date.now(),
         executionTime: Date.now() - startTime,
-        error: status.error_message || '查询执行失败'
+        error: errorMsg
       })
-      ElMessage.error(`查询执行失败: ${status.error_message || '未知错误'}`)
+      ElMessage.error(`查询执行失败: ${errorMsg}`)
       executing.value = false
     }
     // 查询被取消

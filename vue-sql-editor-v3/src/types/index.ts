@@ -21,7 +21,7 @@ export interface DataSource {
 }
 
 // 查询状态
-export type QueryStatus = 'idle' | 'running' | 'success' | 'failed'
+export type QueryStatus = 'idle' | 'running' | 'success' | 'failed' | 'cancelled'
 
 // 查询执行结果
 export interface QueryResult {
