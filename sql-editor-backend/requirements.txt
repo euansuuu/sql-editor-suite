@@ -12,6 +12,8 @@ thrift-sasl==0.4.3
 # Use pyhive without [hive] extra + pure-sasl instead
 pyhive==0.7.0
 trino==0.328.0
+pymysql==1.1.1
+psycopg2-binary==2.9.9
 requests==2.31.0
 python-dateutil==2.8.2
 alembic==1.13.1

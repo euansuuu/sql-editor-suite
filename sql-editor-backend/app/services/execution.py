@@ -8,8 +8,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models import QueryExecution, DataSource, SessionLocal
-from app.connectors.hiveserver2 import HiveServer2Connector
-from app.connectors.trino import TrinoConnector
+from app.connectors.factory import create_connector, datasource_to_config
 from config.settings import settings
 
 
@@ -24,32 +23,12 @@ class ExecutionService:
 
     def _get_connector(self, datasource_config: dict):
         """根据数据源类型获取连接器"""
-        connector_map = {
-            "hiveserver2": HiveServer2Connector,
-            "trino": TrinoConnector,
-        }
-
-        connector_class = connector_map.get(datasource_config["type"])
-        if not connector_class:
-            raise ValueError(f"不支持的数据源类型: {datasource_config['type']}")
-
-        return connector_class(datasource_config)
+        return create_connector(datasource_config)
 
     @staticmethod
     def _extract_datasource_config(datasource: DataSource) -> dict:
         """将 DataSource ORM 对象提取为普通 dict，避免 detached instance 问题"""
-        return {
-            "type": datasource.type,
-            "host": datasource.host,
-            "port": datasource.port,
-            "database": datasource.database,
-            "username": datasource.username,
-            "password": datasource.password,
-            "use_kerberos": datasource.use_kerberos,
-            "kerberos_principal": datasource.kerberos_principal,
-            "kerberos_keytab_path": datasource.kerberos_keytab_path,
-            **(datasource.extra_config or {}),
-        }
+        return datasource_to_config(datasource)
 
     def _execute_worker(self, query_id: str, datasource_config: dict, sql: str, max_rows: int):
         """异步执行工作线程（使用独立的数据库会话）"""

@@ -58,8 +58,8 @@ class HiveServer2Connector(BaseConnector):
                 "auth": auth,
             }
 
-            # 密码（PLAIN/LDAP 认证用）
-            if self.password:
+            # PyHive only accepts password for LDAP/CUSTOM authentication.
+            if self.password and str(auth).upper() in {"LDAP", "CUSTOM"}:
                 connect_kwargs["password"] = self.password
 
             # Kerberos 配置

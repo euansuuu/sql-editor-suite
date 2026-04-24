@@ -10,7 +10,7 @@ from app.schemas import (
     DataSource as DataSourceSchema,
     ApiResponse
 )
-from app.connectors.hiveserver2 import HiveServer2Connector
+from app.connectors.factory import create_connector, datasource_to_config, normalize_datasource_type
 
 
 T = TypeVar('T')
@@ -23,23 +23,6 @@ class PaginatedResult(BaseModel, Generic[T]):
     pageSize: int
 
 router = APIRouter(prefix="/datasources", tags=["datasources"])
-
-# 数据源类型映射：前端别名 -> 后端内部类型
-TYPE_MAPPING = {
-    "hive": "hiveserver2",
-    "hiveserver2": "hiveserver2",
-    "presto": "trino",
-    "trino": "trino",
-    "impala": "impala",
-    "spark": "spark",
-    "jdbc": "jdbc",
-}
-
-
-def normalize_datasource_type(type_str: str) -> str:
-    """标准化数据源类型，兼容前端别名"""
-    return TYPE_MAPPING.get(type_str.lower(), type_str)
-
 
 def get_db():
     """获取数据库会话（修复并发关闭问题）"""
@@ -159,6 +142,9 @@ def update_datasource(datasource_id: int, data: DataSourceUpdate, db: Session = 
         raise HTTPException(status_code=404, detail="数据源不存在")
 
     data_dict = data.dict(exclude_unset=True)
+    if "type" in data_dict and data_dict["type"] is not None:
+        datasource_type = data_dict["type"]
+        data_dict["type"] = normalize_datasource_type(getattr(datasource_type, "value", datasource_type))
     
     # 处理不在 SQLAlchemy 模型中的额外 Kerberos 字段
     extra_fields = ["kerberos_service_name", "kerberos_host_name", "auth_mechanism"]
@@ -199,19 +185,7 @@ def test_connection(datasource_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="数据源不存在")
 
     try:
-        config = {
-            "host": datasource.host,
-            "port": datasource.port,
-            "database": datasource.database,
-            "username": datasource.username,
-            "password": datasource.password,
-            "use_kerberos": datasource.use_kerberos,
-            "kerberos_principal": datasource.kerberos_principal,
-            "kerberos_keytab_path": datasource.kerberos_keytab_path,
-            **(datasource.extra_config or {}),
-        }
-
-        connector = HiveServer2Connector(config)
+        connector = create_connector(datasource_to_config(datasource))
         success = connector.test_connection()
 
         if success:
@@ -243,6 +217,7 @@ async def test_connection_new(request: Request, db: Session = Depends(get_db)):
             kerberos_keytab_path = kerberos_obj.get('keytab_path') or kerberos_obj.get('keytabPath')
         
         config = {
+            "type": normalize_datasource_type(raw_data.get("type")),
             "host": raw_data.get('host'),
             "port": raw_data.get('port'),
             "database": raw_data.get('database', 'default'),
@@ -259,7 +234,7 @@ async def test_connection_new(request: Request, db: Session = Depends(get_db)):
             config["kerberos_host_name"] = raw_data.get('kerberos_host_name') or (kerberos_obj.get('host_name') if kerberos_obj else None)
             config["auth_mechanism"] = raw_data.get('auth_mechanism', 'KERBEROS')
 
-        connector = HiveServer2Connector(config)
+        connector = create_connector(config)
         success = connector.test_connection()
 
         if success:
@@ -275,7 +250,7 @@ async def test_connection_new(request: Request, db: Session = Depends(get_db)):
         if "Kerberos" in error_detail or "GSS" in error_detail or "krb" in error_detail:
             message = f"Kerberos 认证失败: {error_detail}"
         elif "Connection refused" in error_detail:
-            message = f"连接被拒绝: {data.host}:{data.port}，请检查网络和端口"
+            message = f"连接被拒绝: {raw_data.get('host')}:{raw_data.get('port')}，请检查网络和端口"
         elif "Authentication" in error_detail:
             message = f"认证失败: {error_detail}"
         else:

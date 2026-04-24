@@ -24,8 +24,13 @@ class ApiResponse(BaseModel, Generic[T]):
 class DataSourceType(str, Enum):
     HIVESERVER2 = "hiveserver2"
     HIVE = "hive"  # 兼容前端
+    MYSQL = "mysql"
+    POSTGRES = "postgres"
+    POSTGRESQL = "postgresql"
     IMPALA = "impala"
     SPARK = "spark"
+    SPARK_SQL = "spark-sql"
+    SPARKSQL = "sparksql"
     TRINO = "trino"
     PRESTO = "presto"  # 兼容 Presto 别名
     JDBC = "jdbc"

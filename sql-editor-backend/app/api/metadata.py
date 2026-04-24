@@ -4,8 +4,7 @@ from typing import List
 
 from app.models import SessionLocal, DataSource
 from app.schemas import DatabaseInfo, TableInfo, ColumnInfo, PartitionInfo
-from app.connectors.hiveserver2 import HiveServer2Connector
-from app.connectors.trino import TrinoConnector
+from app.connectors.factory import create_connector, datasource_to_config
 
 router = APIRouter(prefix="/metadata", tags=["metadata"])
 
@@ -28,28 +27,7 @@ def get_db():
 
 def get_connector(datasource: DataSource):
     """获取连接器实例"""
-    config = {
-        "host": datasource.host,
-        "port": datasource.port,
-        "database": datasource.database,
-        "username": datasource.username,
-        "password": datasource.password,
-        "use_kerberos": datasource.use_kerberos,
-        "kerberos_principal": datasource.kerberos_principal,
-        "kerberos_keytab_path": datasource.kerberos_keytab_path,
-        **(datasource.extra_config or {}),
-    }
-
-    connector_map = {
-        "hiveserver2": HiveServer2Connector,
-        "trino": TrinoConnector,
-    }
-
-    connector_class = connector_map.get(datasource.type)
-    if not connector_class:
-        raise ValueError(f"不支持的数据源类型: {datasource.type}")
-
-    return connector_class(config)
+    return create_connector(datasource_to_config(datasource))
 
 
 @router.get("/{datasource_id}/databases", response_model=List[DatabaseInfo])
