@@ -102,7 +102,7 @@ import { useDatasourceStore } from '../stores/datasource'
 import { useTabsStore } from '../stores/tabs'
 import { useEditorStore } from '../stores/editor'
 import { useMetadataStore } from '../stores/metadata'
-import { executeQuery as executeQueryApi } from '../api/query'
+import { executeQuery as executeQueryApi, getQueryStatus, getQueryResult } from '../api/query'
 import type { QueryResult as QueryResultType } from '../types'
 
 const datasourceStore = useDatasourceStore()
@@ -114,12 +114,96 @@ const editorRef = ref()
 const executing = ref(false)
 const selectedDatasourceId = ref<string>('')
 const selectedDatabase = ref<string>('')
+const pollingTimer = ref<number | null>(null)
 
 // 计算属性
 const datasourceOptions = computed(() => datasourceStore.datasourceOptions)
 const databaseNames = computed(() => metadataStore.databaseNames)
 const activeTab = computed(() => tabsStore.activeTab)
 const currentDialect = computed(() => editorStore.currentDialect)
+
+// 停止轮询
+const stopPolling = () => {
+  if (pollingTimer.value) {
+    clearInterval(pollingTimer.value)
+    pollingTimer.value = null
+  }
+}
+
+// 轮询查询状态
+const pollQueryStatus = async (queryId: string, tabId: string, startTime: number) => {
+  try {
+    const status = await getQueryStatus(queryId)
+    const currentTab = tabsStore.tabs.find(t => t.id === tabId)
+    
+    if (!currentTab) {
+      stopPolling()
+      return
+    }
+
+    // 更新状态
+    tabsStore.updateTabResult(tabId, {
+      ...currentTab.result,
+      id: queryId,
+      status: status.status.toLowerCase() as any,
+      executionTime: Date.now() - startTime
+    })
+
+    // 查询完成：获取结果
+    if (status.status === 'SUCCESS' || status.status === 'success') {
+      stopPolling()
+      try {
+        const result = await getQueryResult(queryId)
+        tabsStore.updateTabResult(tabId, {
+          ...currentTab.result,
+          ...result,
+          status: 'success',
+          endTime: Date.now(),
+          executionTime: Date.now() - startTime
+        })
+        ElMessage.success('查询执行成功')
+      } catch (err) {
+        tabsStore.updateTabResult(tabId, {
+          ...currentTab.result,
+          status: 'failed',
+          endTime: Date.now(),
+          executionTime: Date.now() - startTime,
+          error: (err as Error).message
+        })
+      } finally {
+        executing.value = false
+      }
+    }
+    // 查询失败
+    else if (status.status === 'FAILED' || status.status === 'failed') {
+      stopPolling()
+      tabsStore.updateTabResult(tabId, {
+        ...currentTab.result,
+        status: 'failed',
+        endTime: Date.now(),
+        executionTime: Date.now() - startTime,
+        error: status.error_message || '查询执行失败'
+      })
+      ElMessage.error(`查询执行失败: ${status.error_message || '未知错误'}`)
+      executing.value = false
+    }
+    // 查询被取消
+    else if (status.status === 'CANCELLED' || status.status === 'cancelled') {
+      stopPolling()
+      tabsStore.updateTabResult(tabId, {
+        ...currentTab.result,
+        status: 'cancelled',
+        endTime: Date.now(),
+        executionTime: Date.now() - startTime
+      })
+      executing.value = false
+    }
+    // 继续轮询：running/pending 状态
+  } catch (error) {
+    // 轮询出错，继续尝试（直到超时）
+    console.error('Polling error:', error)
+  }
+}
 
 // 执行查询
 const executeQuery = async () => {
@@ -141,39 +225,57 @@ const executeQuery = async () => {
     return
   }
 
+  // 停止之前的轮询
+  stopPolling()
   executing.value = true
+  
+  const startTime = Date.now()
+  const tabId = activeTab.value.id
   
   // 设置运行状态
   const runningResult: QueryResultType = {
-    id: `query-${Date.now()}`,
+    id: `query-${startTime}`,
     sql,
     datasourceId: selectedDatasourceId.value,
     database: selectedDatabase.value,
     status: 'running',
-    startTime: Date.now()
+    startTime
   }
-  tabsStore.updateTabResult(activeTab.value.id, runningResult)
+  tabsStore.updateTabResult(tabId, runningResult)
 
   try {
-    const result = await executeQueryApi({
+    // 1. 提交查询，获取 query_id
+    const executeResult = await executeQueryApi({
       datasourceId: selectedDatasourceId.value,
       database: selectedDatabase.value,
       sql,
       maxRows: 10000
     })
-    tabsStore.updateTabResult(activeTab.value.id, result)
-    ElMessage.success('查询执行成功')
+    
+    const queryId = executeResult.query_id || executeResult.queryId
+    if (!queryId) {
+      throw new Error('未获取到查询 ID')
+    }
+
+    // 2. 立即查询一次状态
+    await pollQueryStatus(queryId, tabId, startTime)
+    
+    // 3. 启动轮询，每 2 秒查询一次状态
+    pollingTimer.value = window.setInterval(() => {
+      pollQueryStatus(queryId, tabId, startTime)
+    }, 2000)
+    
   } catch (error) {
+    stopPolling()
     const failedResult: QueryResultType = {
       ...runningResult,
       status: 'failed',
       endTime: Date.now(),
-      executionTime: Date.now() - (runningResult.startTime || Date.now()),
+      executionTime: Date.now() - startTime,
       error: (error as Error).message
     }
-    tabsStore.updateTabResult(activeTab.value.id, failedResult)
+    tabsStore.updateTabResult(tabId, failedResult)
     ElMessage.error(`查询执行失败: ${(error as Error).message}`)
-  } finally {
     executing.value = false
   }
 }
