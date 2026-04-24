@@ -30,10 +30,21 @@ class HiveServer2Connector(BaseConnector):
         """建立 HiveServer2 连接"""
         try:
             # 如果使用 Kerberos，先确保有票据
-            if self.use_kerberos:
+            if self.use_kerberos and self.kerberos_principal:
                 keytab_path = self.config.get("kerberos_keytab_path")
+                
+                # 如果配置中没有 keytab 路径，尝试从默认位置查找
+                if not keytab_path or not os.path.exists(keytab_path):
+                    from pathlib import Path
+                    from config.settings import settings
+                    safe_principal = self.kerberos_principal.replace('/', '_').replace('@', '_')
+                    keytab_path = str(settings.KEYTAB_DIR / f"{safe_principal}.keytab")
+                    logger.info(f"尝试从默认位置加载 keytab: {keytab_path}")
+                
                 if keytab_path and os.path.exists(keytab_path):
                     self._kinit(self.kerberos_principal, keytab_path)
+                else:
+                    logger.warning(f"Keytab 不存在: {keytab_path}，使用系统默认票据")
 
             # 认证机制：优先用配置的 auth_mechanism
             auth = self.config.get("auth_mechanism", "KERBEROS" if self.use_kerberos else "NOSASL")
@@ -78,18 +89,33 @@ class HiveServer2Connector(BaseConnector):
     def _kinit(self, principal: str, keytab_path: str) -> None:
         """使用 keytab 执行 kinit 获取 Kerberos 票据"""
         try:
-            logger.info(f"执行 kinit: principal={principal}, keytab={keytab_path}")
+            from pathlib import Path
+            from config.settings import settings
+            
+            # 使用与 KerberosService 一致的票据缓存路径
+            safe_principal = principal.replace('/', '_').replace('@', '_')
+            krb5cc_path = settings.TICKET_CACHE_DIR / f"krb5cc_{safe_principal}"
+            krb5cc_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            logger.info(f"执行 kinit: principal={principal}, keytab={keytab_path}, cache={krb5cc_path}")
+            
+            env = os.environ.copy()
+            env['KRB5CCNAME'] = str(krb5cc_path)
+            
             result = subprocess.run(
                 ["kinit", "-kt", keytab_path, principal],
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
+                env=env
             )
             
             if result.returncode == 0:
                 logger.info("kinit 成功")
+                # 重要：设置 KRB5CCNAME 环境变量，供 pyhive 使用
+                os.environ['KRB5CCNAME'] = str(krb5cc_path)
             else:
-                logger.warning(f"kinit 警告: {result.stderr}")
+                logger.warning(f"kinit 失败: {result.stderr}")
         except Exception as e:
             logger.warning(f"kinit 执行失败: {e}")
 
