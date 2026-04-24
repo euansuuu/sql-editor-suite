@@ -1,18 +1,21 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
 
+# 项目根目录（config/ 的父目录）
+BASE_DIR = Path(__file__).resolve().parent.parent
+
 
 class Settings(BaseSettings):
     API_V1_STR: str = "/api"
     PROJECT_NAME: str = "SQL Editor Backend"
     
     # Database
-    DATABASE_URL: str = "sqlite:///./sql_app.db"
+    DATABASE_URL: str = f"sqlite:///{BASE_DIR / 'data' / 'sql_editor.db'}"
     
     # Kerberos
     KRB5_CONFIG_PATH: str = "/etc/krb5.conf"
-    KEYTAB_DIR: Path = Path("./keytabs")
-    TICKET_CACHE_DIR: Path = Path("./ticket_cache")
+    KEYTAB_DIR: Path = BASE_DIR / "data" / "keytabs"
+    TICKET_CACHE_DIR: Path = BASE_DIR / "data" / "ticket_cache"
     
     # SQL Execution
     MAX_EXECUTION_TIME: int = 3600  # seconds
