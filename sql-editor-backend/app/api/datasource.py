@@ -98,9 +98,21 @@ def create_datasource(data: DataSourceCreate, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail="数据源名称已存在")
 
-    # 标准化数据源类型，兼容前端别名（hive -> hiveserver2, presto -> trino）
     data_dict = data.dict()
+    
+    # 标准化数据源类型，兼容前端别名（hive -> hiveserver2, presto -> trino）
     data_dict["type"] = normalize_datasource_type(data.type)
+    
+    # 处理不在 SQLAlchemy 模型中的额外 Kerberos 字段
+    extra_fields = ["kerberos_service_name", "kerberos_host_name", "auth_mechanism"]
+    extra_config = data_dict.get("extra_config", {}) or {}
+    
+    for field in extra_fields:
+        if field in data_dict and data_dict[field] is not None:
+            extra_config[field] = data_dict[field]
+            data_dict.pop(field)
+    
+    data_dict["extra_config"] = extra_config
     datasource = DataSource(**data_dict)
     db.add(datasource)
     db.commit()
@@ -115,7 +127,20 @@ def update_datasource(datasource_id: int, data: DataSourceUpdate, db: Session = 
     if not datasource:
         raise HTTPException(status_code=404, detail="数据源不存在")
 
-    for key, value in data.dict().items():
+    data_dict = data.dict(exclude_unset=True)
+    
+    # 处理不在 SQLAlchemy 模型中的额外 Kerberos 字段
+    extra_fields = ["kerberos_service_name", "kerberos_host_name", "auth_mechanism"]
+    extra_config = datasource.extra_config or {}
+    
+    for field in extra_fields:
+        if field in data_dict and data_dict[field] is not None:
+            extra_config[field] = data_dict[field]
+            data_dict.pop(field)
+    
+    data_dict["extra_config"] = extra_config
+    
+    for key, value in data_dict.items():
         setattr(datasource, key, value)
 
     db.commit()
@@ -179,6 +204,9 @@ def test_connection_new(data: DataSourceCreate, db: Session = Depends(get_db)):
             "use_kerberos": data.use_kerberos,
             "kerberos_principal": data.kerberos_principal,
             "kerberos_keytab_path": data.kerberos_keytab_path,
+            "kerberos_service_name": getattr(data, "kerberos_service_name", "hive"),
+            "kerberos_host_name": getattr(data, "kerberos_host_name", None),
+            "auth_mechanism": getattr(data, "auth_mechanism", None),
             **(data.extra_config or {}),
         }
 
