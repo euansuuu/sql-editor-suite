@@ -8,6 +8,22 @@ from app.connectors.hiveserver2 import HiveServer2Connector
 
 router = APIRouter(prefix="/datasources", tags=["datasources"])
 
+# 数据源类型映射：前端别名 -> 后端内部类型
+TYPE_MAPPING = {
+    "hive": "hiveserver2",
+    "hiveserver2": "hiveserver2",
+    "presto": "trino",
+    "trino": "trino",
+    "impala": "impala",
+    "spark": "spark",
+    "jdbc": "jdbc",
+}
+
+
+def normalize_datasource_type(type_str: str) -> str:
+    """标准化数据源类型，兼容前端别名"""
+    return TYPE_MAPPING.get(type_str.lower(), type_str)
+
 
 def get_db():
     db = SessionLocal()
@@ -40,7 +56,10 @@ def create_datasource(data: DataSourceCreate, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail="数据源名称已存在")
 
-    datasource = DataSource(**data.dict())
+    # 标准化数据源类型，兼容前端别名（hive -> hiveserver2, presto -> trino）
+    data_dict = data.dict()
+    data_dict["type"] = normalize_datasource_type(data.type)
+    datasource = DataSource(**data_dict)
     db.add(datasource)
     db.commit()
     db.refresh(datasource)

@@ -6,9 +6,11 @@ from enum import Enum
 
 class DataSourceType(str, Enum):
     HIVESERVER2 = "hiveserver2"
+    HIVE = "hive"  # 兼容前端
     IMPALA = "impala"
     SPARK = "spark"
     TRINO = "trino"
+    PRESTO = "presto"  # 兼容 Presto 别名
     JDBC = "jdbc"
 
 
