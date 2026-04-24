@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-from typing import List, Optional, Generic, TypeVar
+from typing import List, Optional, Generic, TypeVar, Dict, Any
 from pydantic import BaseModel
 
 from app.models import DataSource, SessionLocal
@@ -91,41 +91,52 @@ def get_datasource(datasource_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=ApiResponse[DataSourceSchema])
-def create_datasource(data: DataSourceCreate, db: Session = Depends(get_db)):
+async def create_datasource(request: Request, db: Session = Depends(get_db)):
     """创建数据源"""
+    # 先解析原始 JSON（避免 Pydantic 过滤掉前端的 authType/kerberos 字段）
+    raw_data: Dict[str, Any] = await request.json()
+    
     # 检查名称是否已存在
-    existing = db.query(DataSource).filter(DataSource.name == data.name).first()
+    existing = db.query(DataSource).filter(DataSource.name == raw_data.get('name')).first()
     if existing:
         raise HTTPException(status_code=400, detail="数据源名称已存在")
 
-    data_dict = data.dict()
-    
-    # 兼容前端字段映射
-    # 前端传的是嵌套 kerberos 对象
-    kerberos_obj = data_dict.pop('kerberos', None)
-    if kerberos_obj:
-        data_dict['kerberos_principal'] = kerberos_obj.get('principal')
-        data_dict['kerberos_keytab_path'] = kerberos_obj.get('keytab_path')
-    
+    # 处理前端字段映射兼容
     # 前端传的是 authType 字符串
-    auth_type = data_dict.pop('authType', None)
-    if auth_type:
-        data_dict['use_kerberos'] = auth_type.lower() == 'kerberos'
+    auth_type = raw_data.pop('authType', None)
+    use_kerberos = auth_type and auth_type.lower() == 'kerberos'
+    
+    # 前端传的是嵌套 kerberos 对象
+    kerberos_obj = raw_data.pop('kerberos', None)
+    kerberos_principal = None
+    kerberos_keytab_path = None
+    extra_config = raw_data.get('extra_config', {}) or {}
+    
+    if kerberos_obj:
+        kerberos_principal = kerberos_obj.get('principal')
+        kerberos_keytab_path = kerberos_obj.get('keytab_path') or kerberos_obj.get('keytabPath')
+        # 把额外的 Kerberos 配置存入 extra_config
+        for k, v in kerberos_obj.items():
+            if k not in ['principal', 'keytab_path', 'keytabPath']:
+                extra_config[f'kerberos_{k}'] = v
     
     # 标准化数据源类型，兼容前端别名（hive -> hiveserver2, presto -> trino）
-    data_dict["type"] = normalize_datasource_type(data_dict.get("type", "hiveserver2"))
+    ds_type = normalize_datasource_type(raw_data.get("type", "hiveserver2"))
     
-    # 处理不在 SQLAlchemy 模型中的额外 Kerberos 字段
-    extra_fields = ["kerberos_service_name", "kerberos_host_name", "auth_mechanism"]
-    extra_config = data_dict.get("extra_config", {}) or {}
+    datasource = DataSource(
+        name=raw_data.get('name'),
+        type=ds_type,
+        host=raw_data.get('host'),
+        port=raw_data.get('port'),
+        database=raw_data.get('database'),
+        username=raw_data.get('username'),
+        password=raw_data.get('password'),
+        use_kerberos=use_kerberos,
+        kerberos_principal=kerberos_principal,
+        kerberos_keytab_path=kerberos_keytab_path,
+        extra_config=extra_config,
+    )
     
-    for field in extra_fields:
-        if field in data_dict and data_dict[field] is not None:
-            extra_config[field] = data_dict[field]
-            data_dict.pop(field)
-    
-    data_dict["extra_config"] = extra_config
-    datasource = DataSource(**data_dict)
     db.add(datasource)
     db.commit()
     db.refresh(datasource)
@@ -204,42 +215,41 @@ def test_connection(datasource_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/test", response_model=ApiResponse[dict])
-def test_connection_new(data: DataSourceCreate, db: Session = Depends(get_db)):
+async def test_connection_new(request: Request, db: Session = Depends(get_db)):
     """测试数据源连接（用于新建时测试）"""
     try:
+        # 先解析原始 JSON（避免 Pydantic 过滤掉前端的 authType/kerberos 字段）
+        raw_data: Dict[str, Any] = await request.json()
+        
         # 处理前端字段映射兼容
-        data_dict = data.dict()
+        # 前端传的是 authType 字符串
+        auth_type = raw_data.pop('authType', None)
+        use_kerberos = auth_type and auth_type.lower() == 'kerberos'
         
         # 前端传的是嵌套 kerberos 对象
-        kerberos_obj = data_dict.pop('kerberos', None)
+        kerberos_obj = raw_data.pop('kerberos', None)
+        kerberos_principal = None
+        kerberos_keytab_path = None
         if kerberos_obj:
-            data_dict['kerberos_principal'] = kerberos_obj.get('principal')
-            data_dict['kerberos_keytab_path'] = kerberos_obj.get('keytab_path')
-            data_dict['kerberos_service_name'] = kerberos_obj.get('service_name', 'hive')
-        
-        # 前端传的是 authType 字符串
-        auth_type = data_dict.pop('authType', None)
-        if auth_type:
-            data_dict['use_kerberos'] = auth_type.lower() == 'kerberos'
-        
-        # 确保 Kerberos 模式下有默认的 service_name
-        if data_dict.get('use_kerberos'):
-            data_dict.setdefault('kerberos_service_name', 'hive')
+            kerberos_principal = kerberos_obj.get('principal')
+            kerberos_keytab_path = kerberos_obj.get('keytab_path') or kerberos_obj.get('keytabPath')
         
         config = {
-            "host": data_dict.get('host'),
-            "port": data_dict.get('port'),
-            "database": data_dict.get('database', 'default'),
-            "username": data_dict.get('username'),
-            "password": data_dict.get('password'),
-            "use_kerberos": data_dict.get('use_kerberos', False),
-            "kerberos_principal": data_dict.get('kerberos_principal'),
-            "kerberos_keytab_path": data_dict.get('kerberos_keytab_path'),
-            "kerberos_service_name": data_dict.get('kerberos_service_name', 'hive'),
-            "kerberos_host_name": data_dict.get('kerberos_host_name'),
-            "auth_mechanism": data_dict.get('auth_mechanism', 'KERBEROS' if data_dict.get('use_kerberos') else 'NOSASL'),
-            **(data_dict.get('extra_config') or {}),
+            "host": raw_data.get('host'),
+            "port": raw_data.get('port'),
+            "database": raw_data.get('database', 'default'),
+            "username": raw_data.get('username'),
+            "password": raw_data.get('password'),
+            "use_kerberos": use_kerberos,
+            "kerberos_principal": kerberos_principal,
+            "kerberos_keytab_path": kerberos_keytab_path,
         }
+        
+        # Kerberos 模式下才添加相关配置
+        if use_kerberos:
+            config["kerberos_service_name"] = raw_data.get('kerberos_service_name') or kerberos_obj.get('service_name', 'hive')
+            config["kerberos_host_name"] = raw_data.get('kerberos_host_name') or raw_data.get('host')
+            config["auth_mechanism"] = raw_data.get('auth_mechanism', 'KERBEROS')
 
         connector = HiveServer2Connector(config)
         success = connector.test_connection()
