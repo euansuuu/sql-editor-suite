@@ -88,10 +88,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive } from 'vue'
 import { ElMessage, type FormInstance, type FormRules, type UploadFile } from 'element-plus'
 import type { DataSource, SQLDialect } from '../../types'
 import { useDatasourceStore } from '../../stores/datasource'
+import { uploadKeytab } from '../../api/datasource'
 
 interface Props {
   datasource?: DataSource | null
@@ -169,6 +170,21 @@ const handleKeytabRemove = () => {
   keytabFile.value = null
 }
 
+// 上传 keytab 文件
+const uploadKeytabFile = async (): Promise<string | undefined> => {
+  if (!keytabFile.value || !formData.kerberos?.principal) {
+    return undefined
+  }
+  
+  try {
+    const result = await uploadKeytab(formData.kerberos.principal, keytabFile.value)
+    return result.path
+  } catch (error) {
+    ElMessage.warning(`Keytab 上传失败: ${(error as Error).message}，将使用默认票据`)
+    return undefined
+  }
+}
+
 // 测试连接
 const testConnection = async () => {
   if (!formRef.value) return
@@ -181,7 +197,17 @@ const testConnection = async () => {
 
   testing.value = true
   try {
-    const result = await datasourceStore.testConnection(formData)
+    // 如果有 keytab 文件，先上传
+    const keytabPath = await uploadKeytabFile()
+    
+    const result = await datasourceStore.testConnection({
+      ...formData,
+      kerberos: formData.authType === 'kerberos' ? {
+        ...formData.kerberos,
+        keytab_path: keytabPath
+      } : undefined
+    })
+    
     if (result.success) {
       ElMessage.success('连接测试成功！')
     } else {
@@ -208,16 +234,14 @@ const submit = async () => {
     // 如果有 keytab 文件，先上传
     let keytabPath: string | undefined
     if (keytabFile.value) {
-      // 这里调用上传 keytab 的 API
-      // const result = await uploadKeytab(keytabFile.value)
-      // keytabPath = result.path
+      keytabPath = await uploadKeytabFile()
     }
 
     const data = {
       ...formData,
       kerberos: formData.authType === 'kerberos' ? {
         ...formData.kerberos,
-        keytabPath
+        keytab_path: keytabPath
       } : undefined
     }
 

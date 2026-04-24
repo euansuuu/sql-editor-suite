@@ -32,8 +32,8 @@ export const testDatasourceConnection = (data: Partial<DataSource>) => {
 }
 
 // 上传 Keytab 文件
-export const uploadKeytab = (file: File, onProgress?: (progress: number) => void) => {
+export const uploadKeytab = (principal: string, file: File, onProgress?: (progress: number) => void) => {
   const formData = new FormData()
   formData.append('file', file)
-  return request.upload<{ path: string; filename: string }>('/datasources/keytab', formData, onProgress)
+  return request.upload<{ path: string; filename: string }>(`/kerberos/keytab/upload?principal=${encodeURIComponent(principal)}`, formData, onProgress)
 }
