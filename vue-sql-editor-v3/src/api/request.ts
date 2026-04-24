@@ -28,15 +28,18 @@ service.interceptors.request.use(
 // 响应拦截器
 service.interceptors.response.use(
   (response: AxiosResponse<ApiResponse>) => {
-    const { code, message, data } = response.data
-    
-    if (code === 0 || code === 200) {
-      return data
+    const resData = response.data
+
+    if (resData && typeof resData === 'object' && 'code' in resData) {
+      const { code, message, data } = resData
+      if (code === 0 || code === 200) {
+        return data
+      }
+      console.error(`API Error: ${message}`)
+      return Promise.reject(new Error(message || 'Request failed'))
     }
-    
-    // 业务错误
-    console.error(`API Error: ${message}`)
-    return Promise.reject(new Error(message || 'Request failed'))
+
+    return resData
   },
   (error) => {
     const message = error.response?.data?.message || error.message || 'Network error'

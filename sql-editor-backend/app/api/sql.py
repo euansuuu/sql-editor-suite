@@ -36,7 +36,7 @@ def execute_sql(request: SQLExecuteRequest, db: Session = Depends(get_db)):
         return ApiResponse.error(message=str(e))
 
 
-@router.get("/status/{query_id}", response_model=ApiResponse[QueryStatusResponse])
+@router.get("/{query_id}/status", response_model=ApiResponse[QueryStatusResponse])
 def get_query_status(query_id: str, db: Session = Depends(get_db)):
     """获取查询状态"""
     service = ExecutionService(db)
@@ -46,7 +46,7 @@ def get_query_status(query_id: str, db: Session = Depends(get_db)):
     return ApiResponse.success(data=query)
 
 
-@router.get("/result/{query_id}", response_model=ApiResponse[QueryResultResponse])
+@router.get("/{query_id}/result", response_model=ApiResponse[QueryResultResponse])
 def get_query_result(
     query_id: str,
     offset: int = 0,
@@ -62,7 +62,7 @@ def get_query_result(
         return ApiResponse.error(message=str(e))
 
 
-@router.post("/cancel/{query_id}")
+@router.post("/{query_id}/cancel")
 def cancel_query(query_id: str, db: Session = Depends(get_db)):
     """取消查询"""
     service = ExecutionService(db)

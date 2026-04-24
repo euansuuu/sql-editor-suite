@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { DatabaseInfo, TableMetadata } from '../types'
-import { getDatabases, getTables, getTableDetail } from '../api/metadata'
+import { getDatabases, getTables, getTableColumns } from '../api/metadata'
 
 export const useMetadataStore = defineStore('metadata', () => {
   // 状态
@@ -28,9 +28,9 @@ export const useMetadataStore = defineStore('metadata', () => {
     currentDatasourceId.value = datasourceId
     
     try {
-      const dbNames = await getDatabases(datasourceId)
-      databases.value = dbNames.map(name => ({
-        name,
+      const dbList = await getDatabases(datasourceId)
+      databases.value = dbList.map(db => ({
+        name: db.name,
         tables: []
       }))
     } catch (error) {
@@ -53,7 +53,9 @@ export const useMetadataStore = defineStore('metadata', () => {
       const dbIndex = databases.value.findIndex(d => d.name === database)
       if (dbIndex !== -1) {
         databases.value[dbIndex].tables = tables.map(t => ({
-          ...t,
+          name: t.name,
+          type: (t.type || 'table') as 'table' | 'view',
+          comment: t.comment || undefined,
           columns: [],
           partitions: []
         }))
@@ -78,10 +80,15 @@ export const useMetadataStore = defineStore('metadata', () => {
     loading.value = true
     
     try {
-      const tableDetail = await getTableDetail(dsId, dbName, table)
+      const columns = await getTableColumns(dsId, dbName, table)
+      const tableDetail: TableMetadata = {
+        name: table,
+        type: 'table',
+        columns,
+        partitions: []
+      }
       currentTable.value = tableDetail
 
-      // 更新数据库中的表信息
       const dbIndex = databases.value.findIndex(d => d.name === dbName)
       if (dbIndex !== -1) {
         const tableIndex = databases.value[dbIndex].tables.findIndex(t => t.name === table)
