@@ -67,12 +67,12 @@ class ExecutionService:
             connector = self._get_connector(datasource_config)
             connector.connect()
 
-            connector.execute(sql)
+            connector_query_id = connector.execute(sql)
 
-            status = connector.get_status(query_id)
+            status = connector.get_status(connector_query_id)
 
             if status["status"] == "SUCCESS":
-                result = connector.get_result(query_id, fetch_size=max_rows)
+                result = connector.get_result(connector_query_id, fetch_size=max_rows)
 
                 result_path = self.result_dir / f"{query_id}.json"
                 with open(result_path, 'w') as f:
