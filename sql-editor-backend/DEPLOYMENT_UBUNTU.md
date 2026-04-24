@@ -28,7 +28,7 @@ sudo apt-get install -y \
   pkg-config
 ```
 
-### 2. 安装 SASL 和 Kerberos 开发库（Hive/Trino 必需）
+### 2. 安装 SASL 和 Kerberos 开发库（Hive/Trino 必需，必须安装！）
 
 ```bash
 sudo apt-get install -y \
@@ -36,8 +36,14 @@ sudo apt-get install -y \
   libsasl2-modules-gssapi-mit \
   libkrb5-dev \
   krb5-user \
+  krb5-config \
   libssl-dev
 ```
+
+**⚠️ 特别重要**：
+- `libkrb5-dev` 和 `krb5-config` 是 Kerberos 认证的**必需依赖**
+- 如果不安装，会出现 `SASLWarning: kerberos module not installed, GSSAPI will be ignored` 错误
+- 导致最终报错：`Could not start SASL: None of the mechanisms listed meet all required properties`
 
 ### 3. 安装 Python 开发库
 
@@ -91,11 +97,27 @@ source .venv/bin/activate
 # 确保在虚拟环境中
 source .venv/bin/activate
 
-# 安装依赖
+# 安装基础依赖
 pip install -r requirements.txt
 
 # 或者使用 uv
 # uv pip install -r requirements.txt
+
+# ⚠️ 额外步骤：安装 Kerberos Python 绑定（必须！）
+# 注意：必须先安装系统依赖 libkrb5-dev 和 krb5-config
+pip install kerberos
+
+# 验证 Kerberos 模块安装成功
+python -c "import kerberos; print('✅ Kerberos 模块安装成功！')"
+```
+
+**如果 `pip install kerberos` 失败，可以尝试：**
+```bash
+# 备选方案 1：pykerberos
+pip install pykerberos
+
+# 备选方案 2：预编译二进制包
+pip install pykerberos-binary
 ```
 
 ### ✅ 验证安装
@@ -351,7 +373,56 @@ sudo apt-get install -y libsasl2-dev libsasl2-modules-gssapi-mit
 
 ---
 
-### 问题 6：`from_attributes` / `orm_mode` 警告
+### 问题 6：Kerberos 模块未安装
+
+**错误警告**：
+```
+SASLWarning: kerberos module not installed, GSSAPI will be ignored
+```
+
+**最终报错**：
+```
+Could not start SASL: None of the mechanisms listed meet all required properties
+```
+
+**原因**：缺少 Python Kerberos 绑定库
+
+**解决方案**：
+
+```bash
+# 1. 先安装系统依赖（必须先装！）
+sudo apt-get install -y libkrb5-dev krb5-config gcc
+
+# 2. 安装 Python Kerberos 绑定
+pip install kerberos
+
+# 或者备选方案
+# pip install pykerberos
+
+# 3. 验证安装成功
+python -c "import kerberos; print('✅ Kerberos 模块安装成功！')"
+```
+
+---
+
+### 问题 7：Kerberos Principal 主机名与 IP 不匹配
+
+**错误**：连接失败，KDC 报 `Server not found in Kerberos database`
+
+**原因**：Hive Kerberos Principal 是 `hive/hostname@REALM`，但你用 IP 连接
+
+**解决方案**：配置 hosts 文件映射
+
+```bash
+# 在 /etc/hosts 中添加
+10.88.154.207  host-10-88-154-207
+
+# 然后在数据源配置中使用主机名（host-10-88-154-207）而非 IP
+```
+
+---
+
+### 问题 8：`from_attributes` / `orm_mode` 警告
 
 **原因**：Pydantic V2 重命名了配置项。
 
@@ -361,7 +432,7 @@ sudo apt-get install -y libsasl2-dev libsasl2-modules-gssapi-mit
 
 ---
 
-### 问题 7：`cannot import name 'list' from 'typing'`
+### 问题 9：`cannot import name 'list' from 'typing'`
 
 **原因**：Python 3.9+ 移除了 `typing.List/list` 的导入方式。
 
