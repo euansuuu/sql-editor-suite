@@ -100,8 +100,20 @@ def create_datasource(data: DataSourceCreate, db: Session = Depends(get_db)):
 
     data_dict = data.dict()
     
+    # 兼容前端字段映射
+    # 前端传的是嵌套 kerberos 对象
+    kerberos_obj = data_dict.pop('kerberos', None)
+    if kerberos_obj:
+        data_dict['kerberos_principal'] = kerberos_obj.get('principal')
+        data_dict['kerberos_keytab_path'] = kerberos_obj.get('keytab_path')
+    
+    # 前端传的是 authType 字符串
+    auth_type = data_dict.pop('authType', None)
+    if auth_type:
+        data_dict['use_kerberos'] = auth_type.lower() == 'kerberos'
+    
     # 标准化数据源类型，兼容前端别名（hive -> hiveserver2, presto -> trino）
-    data_dict["type"] = normalize_datasource_type(data.type)
+    data_dict["type"] = normalize_datasource_type(data_dict.get("type", "hiveserver2"))
     
     # 处理不在 SQLAlchemy 模型中的额外 Kerberos 字段
     extra_fields = ["kerberos_service_name", "kerberos_host_name", "auth_mechanism"]
@@ -195,19 +207,38 @@ def test_connection(datasource_id: int, db: Session = Depends(get_db)):
 def test_connection_new(data: DataSourceCreate, db: Session = Depends(get_db)):
     """测试数据源连接（用于新建时测试）"""
     try:
+        # 处理前端字段映射兼容
+        data_dict = data.dict()
+        
+        # 前端传的是嵌套 kerberos 对象
+        kerberos_obj = data_dict.pop('kerberos', None)
+        if kerberos_obj:
+            data_dict['kerberos_principal'] = kerberos_obj.get('principal')
+            data_dict['kerberos_keytab_path'] = kerberos_obj.get('keytab_path')
+            data_dict['kerberos_service_name'] = kerberos_obj.get('service_name', 'hive')
+        
+        # 前端传的是 authType 字符串
+        auth_type = data_dict.pop('authType', None)
+        if auth_type:
+            data_dict['use_kerberos'] = auth_type.lower() == 'kerberos'
+        
+        # 确保 Kerberos 模式下有默认的 service_name
+        if data_dict.get('use_kerberos'):
+            data_dict.setdefault('kerberos_service_name', 'hive')
+        
         config = {
-            "host": data.host,
-            "port": data.port,
-            "database": data.database,
-            "username": data.username,
-            "password": data.password,
-            "use_kerberos": data.use_kerberos,
-            "kerberos_principal": data.kerberos_principal,
-            "kerberos_keytab_path": data.kerberos_keytab_path,
-            "kerberos_service_name": getattr(data, "kerberos_service_name", "hive"),
-            "kerberos_host_name": getattr(data, "kerberos_host_name", None),
-            "auth_mechanism": getattr(data, "auth_mechanism", None),
-            **(data.extra_config or {}),
+            "host": data_dict.get('host'),
+            "port": data_dict.get('port'),
+            "database": data_dict.get('database', 'default'),
+            "username": data_dict.get('username'),
+            "password": data_dict.get('password'),
+            "use_kerberos": data_dict.get('use_kerberos', False),
+            "kerberos_principal": data_dict.get('kerberos_principal'),
+            "kerberos_keytab_path": data_dict.get('kerberos_keytab_path'),
+            "kerberos_service_name": data_dict.get('kerberos_service_name', 'hive'),
+            "kerberos_host_name": data_dict.get('kerberos_host_name'),
+            "auth_mechanism": data_dict.get('auth_mechanism', 'KERBEROS' if data_dict.get('use_kerberos') else 'NOSASL'),
+            **(data_dict.get('extra_config') or {}),
         }
 
         connector = HiveServer2Connector(config)
