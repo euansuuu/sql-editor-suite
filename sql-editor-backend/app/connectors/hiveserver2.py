@@ -35,24 +35,36 @@ class HiveServer2Connector(BaseConnector):
                 if keytab_path and os.path.exists(keytab_path):
                     self._kinit(self.kerberos_principal, keytab_path)
 
+            # 基础配置
             connect_kwargs = {
                 "host": self.host,
                 "port": self.port,
                 "database": self.database,
-                "username": self.username,
+                "username": self.username or "anonymous",
                 "auth": self.auth,
             }
 
-            if self.use_kerberos and self.kerberos_principal:
-                # 提取 service name，例如 hive/host@REALM -> hive
-                principal_parts = self.kerberos_principal.split('/')
-                if len(principal_parts) >= 2:
-                    connect_kwargs["kerberos_service_name"] = principal_parts[0]
-                    connect_kwargs["kerberos_host_name"] = principal_parts[1].split('@')[0]
-                else:
-                    connect_kwargs["kerberos_service_name"] = 'hive'
+            # 密码（PLAIN/LDAP 认证用）
+            if self.password:
+                connect_kwargs["password"] = self.password
+
+            # Kerberos 配置
+            if self.use_kerberos:
+                # 服务端 Principal（默认为 hive）
+                service_name = self.config.get("kerberos_service_name", "hive")
+                connect_kwargs["kerberos_service_name"] = service_name
+                
+                # 如果指定了服务端主机名
+                if "kerberos_host_name" in self.config:
+                    connect_kwargs["kerberos_host_name"] = self.config["kerberos_host_name"]
+                
+                # 支持通过 realm 配置
+                if "kerberos_realm" in self.config:
+                    connect_kwargs["kerberos_realm"] = self.config["kerberos_realm"]
             
             logger.info(f"Connecting to HiveServer2: host={self.host}, port={self.port}, auth={self.auth}")
+            logger.debug(f"Connection kwargs: {connect_kwargs}")
+            
             self.connection = hive.Connection(**connect_kwargs)
             self.cursor = self.connection.cursor()
             logger.info("HiveServer2 连接成功")
