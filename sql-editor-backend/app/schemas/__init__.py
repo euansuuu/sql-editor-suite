@@ -76,9 +76,12 @@ class DataSource(DataSourceBase):
 
 # SQL Execution Schemas
 class SQLExecuteRequest(BaseModel):
-    datasource_id: int = Field(..., description="数据源 ID")
+    datasource_id: int = Field(..., description="数据源 ID", alias="datasourceId")
     sql: str = Field(..., description="SQL 语句")
-    max_rows: Optional[int] = Field(1000, description="最大返回行数")
+    max_rows: Optional[int] = Field(1000, description="最大返回行数", alias="maxRows")
+
+    class Config:
+        populate_by_name = True  # 允许同时按字段名和别名赋值
 
 
 class QueryStatusResponse(BaseModel):

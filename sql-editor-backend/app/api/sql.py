@@ -6,7 +6,7 @@ from app.models import SessionLocal, QueryExecution
 from app.schemas import SQLExecuteRequest, QueryStatusResponse, QueryResultResponse
 from app.services.execution import ExecutionService
 
-router = APIRouter(prefix="/sql", tags=["sql"])
+router = APIRouter(prefix="/query", tags=["query"])
 
 
 def get_db():
