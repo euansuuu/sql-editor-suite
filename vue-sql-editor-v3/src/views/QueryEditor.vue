@@ -149,8 +149,11 @@ const pollQueryStatus = async (queryId: string, tabId: string, startTime: number
       executionTime: Date.now() - startTime
     })
 
+    // 统一转为大写进行比较
+    const statusUpper = (status.status || '').toUpperCase()
+    
     // 查询完成：获取结果
-    if (status.status === 'SUCCESS' || status.status === 'success') {
+    if (statusUpper === 'SUCCESS') {
       stopPolling()
       try {
         const result = await getQueryResult(queryId)
@@ -175,7 +178,7 @@ const pollQueryStatus = async (queryId: string, tabId: string, startTime: number
       }
     }
     // 查询失败
-    else if (status.status === 'FAILED' || status.status === 'failed') {
+    else if (statusUpper === 'FAILED') {
       stopPolling()
       tabsStore.updateTabResult(tabId, {
         ...currentTab.result,
@@ -188,7 +191,7 @@ const pollQueryStatus = async (queryId: string, tabId: string, startTime: number
       executing.value = false
     }
     // 查询被取消
-    else if (status.status === 'CANCELLED' || status.status === 'cancelled') {
+    else if (statusUpper === 'CANCELLED') {
       stopPolling()
       tabsStore.updateTabResult(tabId, {
         ...currentTab.result,
@@ -198,6 +201,7 @@ const pollQueryStatus = async (queryId: string, tabId: string, startTime: number
       })
       executing.value = false
     }
+    // UNKNOWN 状态继续轮询（可能刚提交状态还没更新）
     // 继续轮询：running/pending 状态
   } catch (error) {
     // 轮询出错，继续尝试（直到超时）

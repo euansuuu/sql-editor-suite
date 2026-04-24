@@ -37,6 +37,7 @@ class QueryStatus(str, Enum):
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+    UNKNOWN = "UNKNOWN"
 
 
 # DataSource Schemas
