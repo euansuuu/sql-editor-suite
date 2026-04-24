@@ -178,7 +178,8 @@ const uploadKeytabFile = async (): Promise<string | undefined> => {
   
   try {
     const result = await uploadKeytab(formData.kerberos.principal, keytabFile.value)
-    return result.path
+    ElMessage.success('Keytab 上传成功！')
+    return result.keytab_path || result.path
   } catch (error) {
     ElMessage.warning(`Keytab 上传失败: ${(error as Error).message}，将使用默认票据`)
     return undefined
