@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 from sqlalchemy.orm import Session
 
-from app.models import QueryExecution, DataSource
+from app.models import QueryExecution, DataSource, SessionLocal
 from app.connectors.hiveserver2 import HiveServer2Connector
 from app.connectors.trino import TrinoConnector
 from config.settings import settings
@@ -22,9 +22,24 @@ class ExecutionService:
         self.result_dir.mkdir(parents=True, exist_ok=True)
         self._running_queries = {}
 
-    def _get_connector(self, datasource: DataSource):
+    def _get_connector(self, datasource_config: dict):
         """根据数据源类型获取连接器"""
-        config = {
+        connector_map = {
+            "hiveserver2": HiveServer2Connector,
+            "trino": TrinoConnector,
+        }
+
+        connector_class = connector_map.get(datasource_config["type"])
+        if not connector_class:
+            raise ValueError(f"不支持的数据源类型: {datasource_config['type']}")
+
+        return connector_class(datasource_config)
+
+    @staticmethod
+    def _extract_datasource_config(datasource: DataSource) -> dict:
+        """将 DataSource ORM 对象提取为普通 dict，避免 detached instance 问题"""
+        return {
+            "type": datasource.type,
             "host": datasource.host,
             "port": datasource.port,
             "database": datasource.database,
@@ -36,44 +51,29 @@ class ExecutionService:
             **(datasource.extra_config or {}),
         }
 
-        connector_map = {
-            "hiveserver2": HiveServer2Connector,
-            "trino": TrinoConnector,
-            # 其他连接器可在此扩展
-        }
-
-        connector_class = connector_map.get(datasource.type)
-        if not connector_class:
-            raise ValueError(f"不支持的数据源类型: {datasource.type}")
-
-        return connector_class(config)
-
-    def _execute_worker(self, query_id: str, datasource: DataSource, sql: str, max_rows: int):
-        """异步执行工作线程"""
+    def _execute_worker(self, query_id: str, datasource_config: dict, sql: str, max_rows: int):
+        """异步执行工作线程（使用独立的数据库会话）"""
+        db = SessionLocal()
         connector = None
         start_time = time.time()
 
         try:
-            # 更新状态为 RUNNING
-            query = self.db.query(QueryExecution).filter(QueryExecution.id == query_id).first()
+            query = db.query(QueryExecution).filter(QueryExecution.id == query_id).first()
             if query:
                 query.status = "RUNNING"
                 query.updated_at = datetime.utcnow()
-                self.db.commit()
+                db.commit()
 
-            connector = self._get_connector(datasource)
+            connector = self._get_connector(datasource_config)
             connector.connect()
 
-            # 执行 SQL
             connector.execute(sql)
 
-            # 获取结果
             status = connector.get_status(query_id)
 
             if status["status"] == "SUCCESS":
                 result = connector.get_result(query_id, fetch_size=max_rows)
 
-                # 保存结果到文件
                 result_path = self.result_dir / f"{query_id}.json"
                 with open(result_path, 'w') as f:
                     json.dump({
@@ -81,7 +81,6 @@ class ExecutionService:
                         "data": result["data"],
                     }, f, default=str)
 
-                # 更新查询记录
                 if query:
                     query.status = "SUCCESS"
                     query.row_count = result["total_rows"]
@@ -90,7 +89,7 @@ class ExecutionService:
                     query.execution_time = int((time.time() - start_time) * 1000)
                     query.completed_at = datetime.utcnow()
                     query.updated_at = datetime.utcnow()
-                    self.db.commit()
+                    db.commit()
             else:
                 if query:
                     query.status = status["status"]
@@ -98,31 +97,35 @@ class ExecutionService:
                     query.execution_time = int((time.time() - start_time) * 1000)
                     query.completed_at = datetime.utcnow()
                     query.updated_at = datetime.utcnow()
-                    self.db.commit()
+                    db.commit()
 
         except Exception as e:
-            # 更新状态为 FAILED
-            query = self.db.query(QueryExecution).filter(QueryExecution.id == query_id).first()
+            query = db.query(QueryExecution).filter(QueryExecution.id == query_id).first()
             if query:
                 query.status = "FAILED"
                 query.error_message = str(e)
                 query.execution_time = int((time.time() - start_time) * 1000)
                 query.completed_at = datetime.utcnow()
                 query.updated_at = datetime.utcnow()
-                self.db.commit()
+                db.commit()
         finally:
             if connector:
                 connector.disconnect()
             self._running_queries.pop(query_id, None)
+            try:
+                if db.is_active:
+                    db.close()
+            except Exception:
+                pass
 
     def execute(self, datasource_id: int, sql: str, max_rows: int = 1000) -> str:
         """执行 SQL（异步）"""
-        # 验证数据源存在
         datasource = self.db.query(DataSource).filter(DataSource.id == datasource_id).first()
         if not datasource:
             raise ValueError(f"数据源不存在: {datasource_id}")
 
-        # 创建查询记录
+        datasource_config = self._extract_datasource_config(datasource)
+
         query_id = str(uuid.uuid4())
         query = QueryExecution(
             id=query_id,
@@ -133,10 +136,9 @@ class ExecutionService:
         self.db.add(query)
         self.db.commit()
 
-        # 启动异步执行线程
         thread = threading.Thread(
             target=self._execute_worker,
-            args=(query_id, datasource, sql, max_rows),
+            args=(query_id, datasource_config, sql, max_rows),
             daemon=True,
         )
         thread.start()
@@ -175,7 +177,6 @@ class ExecutionService:
                 "total_rows": 0,
             }
 
-        # 从文件读取结果
         result_path = Path(query.result_path)
         if not result_path.exists():
             return {
@@ -211,7 +212,6 @@ class ExecutionService:
         if query.status in ["SUCCESS", "FAILED", "CANCELLED"]:
             return True
 
-        # 更新状态
         query.status = "CANCELLED"
         query.updated_at = datetime.utcnow()
         query.completed_at = datetime.utcnow()
